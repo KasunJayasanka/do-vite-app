@@ -1,4 +1,10 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
+import {
+  fetchTasksAPI,
+  createTaskAPI,
+  updateTaskAPI,
+  deleteTaskAPI,
+} from '../../api/tasks';
 
 export interface Task {
   id: string;
@@ -11,61 +17,117 @@ export interface Task {
 export interface TasksState {
   tasks: Task[];
   filter: 'all' | 'active' | 'completed';
+  status: 'idle' | 'loading' | 'failed';
 }
 
 const initialState: TasksState = {
-  tasks: [
-    {
-      id: '1',
-      title: 'Welcome to your Task Manager',
-      description: 'This is a sample task to get you started',
-      completed: false,
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: '2',
-      title: 'Try marking a task as complete',
-      description: 'Click the checkbox to mark this task as done',
-      completed: true,
-      createdAt: new Date().toISOString(),
-    },
-  ],
+  tasks: [],
   filter: 'all',
+  status: 'idle',
 };
+
+// Thunks
+export const fetchTasks = createAsyncThunk('tasks/fetch', async () => {
+  const resp = await fetchTasksAPI();
+  return resp.data.map(t => ({
+    ...t,
+    createdAt: new Date(t.createdAt).toISOString(),
+  }));
+});
+
+export const addTask = createAsyncThunk(
+  'tasks/add',
+  async (payload: Omit<Task, 'id' | 'createdAt'>) => {
+    const resp = await createTaskAPI(payload);
+    return {
+      ...resp.data,
+      createdAt: new Date(resp.data.createdAt).toISOString(),
+    };
+  }
+);
+
+export const toggleTask = createAsyncThunk(
+  'tasks/toggle',
+  async (id: string, thunkAPI) => {
+    const state = thunkAPI.getState() as { tasks: TasksState };
+    const task = state.tasks.tasks.find(t => t.id === id)!;
+    const resp = await updateTaskAPI(id, {
+      title: task.title,
+      description: task.description,
+      completed: !task.completed,
+    });
+    return { id, completed: resp.data.completed };
+  }
+);
+
+export const updateTask = createAsyncThunk(
+  'tasks/update',
+  async (payload: { id: string; title: string; description?: string }) => {
+    const resp = await updateTaskAPI(payload.id, {
+      title: payload.title,
+      description: payload.description,
+      completed: true, // or carry through existing
+    });
+    return {
+      id: resp.data.id,
+      title: resp.data.title,
+      description: resp.data.description,
+    };
+  }
+);
+
+export const deleteTask = createAsyncThunk(
+  'tasks/delete',
+  async (id: string) => {
+    await deleteTaskAPI(id);
+    return id;
+  }
+);
 
 const tasksSlice = createSlice({
   name: 'tasks',
   initialState,
   reducers: {
-    addTask: (state, action: PayloadAction<Omit<Task, 'id' | 'createdAt'>>) => {
-      const newTask: Task = {
-        ...action.payload,
-        id: Date.now().toString(),
-        createdAt: new Date().toISOString(),
-      };
-      state.tasks.unshift(newTask);
-    },
-    toggleTask: (state, action: PayloadAction<string>) => {
-      const task = state.tasks.find(task => task.id === action.payload);
-      if (task) {
-        task.completed = !task.completed;
-      }
-    },
-    deleteTask: (state, action: PayloadAction<string>) => {
-      state.tasks = state.tasks.filter(task => task.id !== action.payload);
-    },
-    updateTask: (state, action: PayloadAction<{ id: string; title: string; description?: string }>) => {
-      const task = state.tasks.find(task => task.id === action.payload.id);
-      if (task) {
-        task.title = action.payload.title;
-        task.description = action.payload.description;
-      }
-    },
-    setFilter: (state, action: PayloadAction<'all' | 'active' | 'completed'>) => {
+    setFilter: (state, action: PayloadAction<TasksState['filter']>) => {
       state.filter = action.payload;
     },
   },
+  extraReducers: builder => {
+    builder
+      // FETCH
+      .addCase(fetchTasks.pending, state => { state.status = 'loading'; })
+      .addCase(fetchTasks.fulfilled, (state, { payload }) => {
+        state.status = 'idle';
+        state.tasks = payload;
+      })
+      .addCase(fetchTasks.rejected, state => { state.status = 'failed'; })
+
+      // ADD
+      .addCase(addTask.fulfilled, (state, { payload }) => {
+        state.tasks.unshift(payload);
+      })
+
+      // TOGGLE
+      .addCase(toggleTask.fulfilled, (state, { payload }) => {
+        const t = state.tasks.find(t => t.id === payload.id);
+        if (t) t.completed = payload.completed;
+      })
+
+      // UPDATE
+      .addCase(updateTask.fulfilled, (state, { payload }) => {
+        const t = state.tasks.find(t => t.id === payload.id);
+        if (t) {
+          t.title = payload.title;
+          t.description = payload.description;
+        }
+      })
+
+      // DELETE
+      .addCase(deleteTask.fulfilled, (state, { payload }) => {
+        state.tasks = state.tasks.filter(t => t.id !== payload);
+      });
+  },
 });
 
-export const { addTask, toggleTask, deleteTask, updateTask, setFilter } = tasksSlice.actions;
+export const { setFilter } = tasksSlice.actions;
 export default tasksSlice.reducer;
