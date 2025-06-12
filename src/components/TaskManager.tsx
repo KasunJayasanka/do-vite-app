@@ -1,5 +1,6 @@
-
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useAppDispatch, useAppSelector } from '../hooks/redux';
+import { fetchTasks } from '../features/tasks/tasksSlice';
 import { TaskList } from './TaskList';
 import { TaskForm } from './TaskForm';
 import { FilterTabs } from './FilterTabs';
@@ -7,6 +8,13 @@ import { TaskStats } from './TaskStats';
 import { DarkModeToggle } from './DarkModeToggle';
 
 export const TaskManager: React.FC = () => {
+  const dispatch = useAppDispatch();
+  const status = useAppSelector(state => state.tasks.status);
+
+  useEffect(() => {
+    dispatch(fetchTasks());
+  }, [dispatch]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-indigo-700 dark:from-slate-900 dark:via-purple-900 dark:to-slate-900 transition-all duration-500">
       <div className="container mx-auto px-4 py-8 max-w-4xl">
@@ -29,6 +37,10 @@ export const TaskManager: React.FC = () => {
           <FilterTabs />
           <TaskForm />
         </div>
+        
+        {status === 'loading' && (
+          <p className="text-white text-center mb-4">Loading tasks…</p>
+        )}
         
         <TaskList />
       </div>
